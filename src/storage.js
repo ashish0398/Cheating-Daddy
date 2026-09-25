@@ -9,7 +9,7 @@ const DEFAULT_CONFIG = {
     configVersion: CONFIG_VERSION,
     onboarded: false,
     layout: 'normal',
-    geminiLiveModel: 'gemini-3-flash-live',
+    geminiLiveModel: 'gemini-1.5-flash-live-001',
     groqModel: 'qwen/qwen3.6-27b',
     groqImageModel: 'qwen/qwen3.6-27b',
     disableGroqThinking: true,
@@ -331,10 +331,8 @@ function incrementLimitCount(model) {
     }
 
     // Increment the appropriate model count
-    if (model === 'gemini-3-flash-live' || model === 'gemini-3-flash') {
+    if (model.includes('gemini-3.8-flash') || model.includes('gemini-2.0-flash')) {
         todayEntry.flash.count++;
-    } else if (model === 'gemini-3-flash-lite' || model === 'gemini-2.5-flash-lite') {
-        todayEntry.flashLite.count++;
     }
 
     setLimits(limits);
@@ -362,12 +360,12 @@ function getAvailableModel() {
     // RPD limits: flash = 20, flash-lite = 20
     // After both exhausted, fall back to flash (for paid API users)
     if (todayLimits.flash.count < 20) {
-        return 'gemini-3-flash-live';
+        return 'gemini-3.8-flash';
     } else if (todayLimits.flashLite.count < 20) {
-        return 'gemini-3-flash-lite';
+        return 'gemini-3.8-flash';
     }
 
-    return 'gemini-3-flash-live'; // Default to flash for paid API users
+    return 'gemini-3.8-flash'; // Default to flash for paid API users
 }
 
 function getModelForToday() {

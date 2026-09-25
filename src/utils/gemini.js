@@ -14,6 +14,22 @@ function getLocalAi() {
     return _localai;
 }
 
+// Helper function to get a valid Live model
+function getValidLiveModel(model) {
+    const validLiveModels = [
+        'gemini-1.5-flash-live-001',
+        'gemini-1.5-pro-live-001',
+        'gemini-2.0-flash-live-001',
+        'gemini-3-flash-live',
+        'gemini-3-pro-live',
+    ];
+    if (validLiveModels.includes(model)) {
+        return model;
+    }
+    console.warn(`Invalid Live model '${model}', falling back to 'gemini-1.5-flash-live-001'`);
+    return 'gemini-1.5-flash-live-001';
+}
+
 // Provider mode: 'byok', 'cloud', or 'local'
 let currentProviderMode = 'byok';
 
@@ -646,7 +662,7 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
     const client = new GoogleGenAI({
         vertexai: false,
         apiKey: apiKey,
-        httpOptions: { apiVersion: 'v1alpha' },
+        httpOptions: { apiVersion: 'v1beta' },
     });
 
     // Get enabled tools first to determine Google Search status
@@ -663,7 +679,7 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
 
     try {
         const session = await client.live.connect({
-            model: getConfig().geminiLiveModel,
+            model: getValidLiveModel(getConfig().geminiLiveModel),
             callbacks: {
                 onopen: function () {
                     logTransportEvent('gemini.live.opened', {});
@@ -745,12 +761,7 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                 proactivity: { proactiveAudio: true },
                 outputAudioTranscription: {},
                 tools: enabledTools,
-                // Enable speaker diarization
-                inputAudioTranscription: {
-                    enableSpeakerDiarization: true,
-                    minSpeakerCount: 2,
-                    maxSpeakerCount: 2,
-                },
+                inputAudioTranscription: { diarization: true },
                 contextWindowCompression: { slidingWindow: {} },
                 speechConfig: { languageCode: language },
                 systemInstruction: {
