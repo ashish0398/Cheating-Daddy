@@ -673,7 +673,7 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
     const client = new GoogleGenAI({
         vertexai: false,
         apiKey: apiKey,
-        httpOptions: { apiVersion: 'v1beta' },
+        httpOptions: { apiVersion: 'v1alpha' },
     });
 
     // Get enabled tools first to determine Google Search status
@@ -689,8 +689,9 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
     }
 
     try {
+        const resolvedModel = getValidLiveModel(getConfig().geminiLiveModel);
         const session = await client.live.connect({
-            model: getValidLiveModel(getConfig().geminiLiveModel),
+            model: resolvedModel,
             callbacks: {
                 onopen: function () {
                     logTransportEvent('gemini.live.opened', {});
@@ -769,7 +770,7 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
             },
             config: {
                 responseModalities: [Modality.AUDIO],
-                ...(modelSupportsProactivity(getValidLiveModel(getConfig().geminiLiveModel)) && { proactivity: { proactiveAudio: true } }),
+                ...(modelSupportsProactivity(resolvedModel) && { proactivity: { proactiveAudio: true } }),
                 outputAudioTranscription: {},
                 tools: enabledTools,
                 inputAudioTranscription: { diarization: true },
