@@ -14,6 +14,17 @@ function getLocalAi() {
     return _localai;
 }
 
+// Helper function to check if model supports proactivity
+function modelSupportsProactivity(model) {
+    const proactivitySupportedModels = [
+        'gemini-3-flash-live',
+        'gemini-3-pro-live',
+        'gemini-3.8-flash-live',
+        'gemini-3.8-pro-live',
+    ];
+    return proactivitySupportedModels.includes(model);
+}
+
 // Helper function to get a valid Live model
 function getValidLiveModel(model) {
     const validLiveModels = [
@@ -26,8 +37,8 @@ function getValidLiveModel(model) {
     if (validLiveModels.includes(model)) {
         return model;
     }
-    console.warn(`Invalid Live model '${model}', falling back to 'gemini-1.5-flash-live-001'`);
-    return 'gemini-1.5-flash-live-001';
+    console.warn(`Invalid Live model '${model}', falling back to 'gemini-3-flash-live'`);
+    return 'gemini-3-flash-live';
 }
 
 // Provider mode: 'byok', 'cloud', or 'local'
@@ -758,7 +769,7 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
             },
             config: {
                 responseModalities: [Modality.AUDIO],
-                proactivity: { proactiveAudio: true },
+                ...(modelSupportsProactivity(getValidLiveModel(getConfig().geminiLiveModel)) && { proactivity: { proactiveAudio: true } }),
                 outputAudioTranscription: {},
                 tools: enabledTools,
                 inputAudioTranscription: { diarization: true },

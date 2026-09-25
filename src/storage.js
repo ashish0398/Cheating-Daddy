@@ -9,7 +9,7 @@ const DEFAULT_CONFIG = {
     configVersion: CONFIG_VERSION,
     onboarded: false,
     layout: 'normal',
-    geminiLiveModel: 'gemini-1.5-flash-live-001',
+    geminiLiveModel: 'gemini-3-flash-live',
     groqModel: 'qwen/qwen3.6-27b',
     groqImageModel: 'qwen/qwen3.6-27b',
     disableGroqThinking: true,
