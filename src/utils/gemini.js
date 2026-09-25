@@ -16,12 +16,7 @@ function getLocalAi() {
 
 // Helper function to check if model supports proactivity
 function modelSupportsProactivity(model) {
-    const proactivitySupportedModels = [
-        'gemini-3-flash-live',
-        'gemini-3-pro-live',
-        'gemini-3.8-flash-live',
-        'gemini-3.8-pro-live',
-    ];
+    const proactivitySupportedModels = ['gemini-3.1-flash-live-preview'];
     return proactivitySupportedModels.includes(model);
 }
 
@@ -31,14 +26,13 @@ function getValidLiveModel(model) {
         'gemini-1.5-flash-live-001',
         'gemini-1.5-pro-live-001',
         'gemini-2.0-flash-live-001',
-        'gemini-3-flash-live',
-        'gemini-3-pro-live',
+        'gemini-3.1-flash-live-preview',
     ];
     if (validLiveModels.includes(model)) {
         return model;
     }
-    console.warn(`Invalid Live model '${model}', falling back to 'gemini-3-flash-live'`);
-    return 'gemini-3-flash-live';
+    console.warn(`Invalid Live model '${model}', falling back to 'gemini-3.1-flash-live-preview'`);
+    return 'gemini-3.1-flash-live-preview';
 }
 
 // Provider mode: 'byok', 'cloud', or 'local'
