@@ -705,6 +705,8 @@ export class MainView extends LitElement {
         _tokenError: { state: true },
         _keyError: { state: true },
         // Local AI state
+        _localLlmProvider: { state: true },
+        _localGroqError: { state: true },
         _localLlmModel: { state: true },
         _useCustomLocalLlmModel: { state: true },
         _whisperModel: { state: true },
@@ -734,6 +736,8 @@ export class MainView extends LitElement {
         this._tokenError = false;
         this._keyError = false;
         this._showLocalHelp = false;
+        this._localLlmProvider = 'local';
+        this._localGroqError = false;
         this._localLlmModel = 'unsloth/Qwen3.5-4B-GGUF:Q4_K_M';
         this._useCustomLocalLlmModel = false;
         this._whisperModel = 'tiny.en';
@@ -773,6 +777,7 @@ export class MainView extends LitElement {
             this._disableGroqThinking = config.disableGroqThinking === true;
 
             // Load local AI settings
+            this._localLlmProvider = prefs.localLlmProvider === 'groq' ? 'groq' : 'local';
             this._localLlmModel = prefs.localLlmModel || 'unsloth/Qwen3.5-4B-GGUF:Q4_K_M';
             this._useCustomLocalLlmModel = !LOCAL_LLM_PRESETS.some(preset => preset.value === this._localLlmModel);
             this._whisperModel = prefs.whisperModel || 'tiny.en';
@@ -978,6 +983,13 @@ export class MainView extends LitElement {
         this.requestUpdate();
     }
 
+    async _saveLocalLlmProvider(val) {
+        this._localLlmProvider = val === 'groq' ? 'groq' : 'local';
+        this._localGroqError = false;
+        await cheatingDaddy.storage.updatePreference('localLlmProvider', this._localLlmProvider);
+        this.requestUpdate();
+    }
+
     async _saveLocalLlmModel(val) {
         this._localLlmModel = val;
         await cheatingDaddy.storage.updatePreference('localLlmModel', val);
@@ -1029,7 +1041,17 @@ export class MainView extends LitElement {
                 return;
             }
         } else if (this._mode === 'local') {
-            if (!this._localLlmModel.trim()) {
+            if (this._localLlmProvider === 'groq') {
+                if (!this._groqKey.trim()) {
+                    this._localGroqError = true;
+                    this.requestUpdate();
+                    setTimeout(() => {
+                        this._localGroqError = false;
+                        this.requestUpdate();
+                    }, 3000);
+                    return;
+                }
+            } else if (!this._localLlmModel.trim()) {
                 return;
             }
         }
@@ -1251,11 +1273,39 @@ export class MainView extends LitElement {
                 <summary class="config-summary">
                     <span class="config-summary-text">
                         <span class="config-summary-title">Language model</span>
-                        <span class="config-summary-description">Local GGUF model</span>
+                        <span class="config-summary-description">${this._localLlmProvider === 'groq' ? 'Groq (cloud answers)' : 'Local GGUF model'}</span>
                     </span>
                     ${this._renderConfigChevron()}
                 </summary>
                 <div class="config-content">
+                    <div class="form-group">
+                        <label class="form-label">Answers run on</label>
+                        <select .value=${this._localLlmProvider} @change=${e => this._saveLocalLlmProvider(e.target.value)}>
+                            <option value="local" ?selected=${this._localLlmProvider === 'local'}>This computer (offline)</option>
+                            <option value="groq" ?selected=${this._localLlmProvider === 'groq'}>Groq (cloud, needs API key)</option>
+                        </select>
+                        <div class="form-hint">Speech-to-text always runs locally with Whisper. Groq only receives the transcribed text and screenshots you send.</div>
+                    </div>
+                    ${
+                        this._localLlmProvider === 'groq'
+                            ? html`
+                                  <div class="form-group">
+                                      <label class="form-label">Groq API Key</label>
+                                      <input type="password" placeholder="gsk_..." .value=${this._groqKey} @input=${e => this._saveGroqKey(e.target.value)} />
+                                      <div class="form-hint" style=${this._localGroqError ? 'color: #ef4444;' : ''}>
+                                          ${this._localGroqError ? 'Enter your Groq API key to continue. ' : ''}<span class="link" @click=${() => this.onExternalLink('https://console.groq.com/keys')}>Get Groq key</span>
+                                      </div>
+                                  </div>
+                                  <div class="form-group">
+                                      <label class="form-label">Groq Model</label>
+                                      <input type="text" .value=${this._groqModel} @input=${e => this._saveGroqModel(e.target.value)} />
+                                  </div>
+                                  <div class="form-group">
+                                      <label class="form-label">Groq Image Model</label>
+                                      <input type="text" .value=${this._groqImageModel} @input=${e => this._saveGroqImageModel(e.target.value)} />
+                                  </div>
+                              `
+                            : html`
                     <div class="form-group">
                         <label class="form-label">Model</label>
                         <select
@@ -1279,6 +1329,8 @@ export class MainView extends LitElement {
                         }
                         <div class="form-hint">Sizes include the vision model. Q4 uses less memory; Q8 preserves more quality.</div>
                     </div>
+                    `
+                    }
                 </div>
             </details>
 

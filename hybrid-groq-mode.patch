@@ -1,0 +1,350 @@
+diff --git a/src/components/views/MainView.js b/src/components/views/MainView.js
+index 9976e33..80b6a87 100644
+--- a/src/components/views/MainView.js
++++ b/src/components/views/MainView.js
+@@ -705,6 +705,8 @@ export class MainView extends LitElement {
+         _tokenError: { state: true },
+         _keyError: { state: true },
+         // Local AI state
++        _localLlmProvider: { state: true },
++        _localGroqError: { state: true },
+         _localLlmModel: { state: true },
+         _useCustomLocalLlmModel: { state: true },
+         _whisperModel: { state: true },
+@@ -734,6 +736,8 @@ export class MainView extends LitElement {
+         this._tokenError = false;
+         this._keyError = false;
+         this._showLocalHelp = false;
++        this._localLlmProvider = 'local';
++        this._localGroqError = false;
+         this._localLlmModel = 'unsloth/Qwen3.5-4B-GGUF:Q4_K_M';
+         this._useCustomLocalLlmModel = false;
+         this._whisperModel = 'tiny.en';
+@@ -773,6 +777,7 @@ export class MainView extends LitElement {
+             this._disableGroqThinking = config.disableGroqThinking === true;
+ 
+             // Load local AI settings
++            this._localLlmProvider = prefs.localLlmProvider === 'groq' ? 'groq' : 'local';
+             this._localLlmModel = prefs.localLlmModel || 'unsloth/Qwen3.5-4B-GGUF:Q4_K_M';
+             this._useCustomLocalLlmModel = !LOCAL_LLM_PRESETS.some(preset => preset.value === this._localLlmModel);
+             this._whisperModel = prefs.whisperModel || 'tiny.en';
+@@ -978,6 +983,13 @@ export class MainView extends LitElement {
+         this.requestUpdate();
+     }
+ 
++    async _saveLocalLlmProvider(val) {
++        this._localLlmProvider = val === 'groq' ? 'groq' : 'local';
++        this._localGroqError = false;
++        await cheatingDaddy.storage.updatePreference('localLlmProvider', this._localLlmProvider);
++        this.requestUpdate();
++    }
++
+     async _saveLocalLlmModel(val) {
+         this._localLlmModel = val;
+         await cheatingDaddy.storage.updatePreference('localLlmModel', val);
+@@ -1029,7 +1041,17 @@ export class MainView extends LitElement {
+                 return;
+             }
+         } else if (this._mode === 'local') {
+-            if (!this._localLlmModel.trim()) {
++            if (this._localLlmProvider === 'groq') {
++                if (!this._groqKey.trim()) {
++                    this._localGroqError = true;
++                    this.requestUpdate();
++                    setTimeout(() => {
++                        this._localGroqError = false;
++                        this.requestUpdate();
++                    }, 3000);
++                    return;
++                }
++            } else if (!this._localLlmModel.trim()) {
+                 return;
+             }
+         }
+@@ -1251,11 +1273,39 @@ export class MainView extends LitElement {
+                 <summary class="config-summary">
+                     <span class="config-summary-text">
+                         <span class="config-summary-title">Language model</span>
+-                        <span class="config-summary-description">Local GGUF model</span>
++                        <span class="config-summary-description">${this._localLlmProvider === 'groq' ? 'Groq (cloud answers)' : 'Local GGUF model'}</span>
+                     </span>
+                     ${this._renderConfigChevron()}
+                 </summary>
+                 <div class="config-content">
++                    <div class="form-group">
++                        <label class="form-label">Answers run on</label>
++                        <select .value=${this._localLlmProvider} @change=${e => this._saveLocalLlmProvider(e.target.value)}>
++                            <option value="local" ?selected=${this._localLlmProvider === 'local'}>This computer (offline)</option>
++                            <option value="groq" ?selected=${this._localLlmProvider === 'groq'}>Groq (cloud, needs API key)</option>
++                        </select>
++                        <div class="form-hint">Speech-to-text always runs locally with Whisper. Groq only receives the transcribed text and screenshots you send.</div>
++                    </div>
++                    ${
++                        this._localLlmProvider === 'groq'
++                            ? html`
++                                  <div class="form-group">
++                                      <label class="form-label">Groq API Key</label>
++                                      <input type="password" placeholder="gsk_..." .value=${this._groqKey} @input=${e => this._saveGroqKey(e.target.value)} />
++                                      <div class="form-hint" style=${this._localGroqError ? 'color: #ef4444;' : ''}>
++                                          ${this._localGroqError ? 'Enter your Groq API key to continue. ' : ''}<span class="link" @click=${() => this.onExternalLink('https://console.groq.com/keys')}>Get Groq key</span>
++                                      </div>
++                                  </div>
++                                  <div class="form-group">
++                                      <label class="form-label">Groq Model</label>
++                                      <input type="text" .value=${this._groqModel} @input=${e => this._saveGroqModel(e.target.value)} />
++                                  </div>
++                                  <div class="form-group">
++                                      <label class="form-label">Groq Image Model</label>
++                                      <input type="text" .value=${this._groqImageModel} @input=${e => this._saveGroqImageModel(e.target.value)} />
++                                  </div>
++                              `
++                            : html`
+                     <div class="form-group">
+                         <label class="form-label">Model</label>
+                         <select
+@@ -1279,6 +1329,8 @@ export class MainView extends LitElement {
+                         }
+                         <div class="form-hint">Sizes include the vision model. Q4 uses less memory; Q8 preserves more quality.</div>
+                     </div>
++                    `
++                    }
+                 </div>
+             </details>
+ 
+diff --git a/src/utils/localai.js b/src/utils/localai.js
+index cce16f8..6ac9065 100644
+--- a/src/utils/localai.js
++++ b/src/utils/localai.js
+@@ -1,6 +1,7 @@
+ const fs = require('fs');
+ const path = require('path');
+ const { getSystemPrompt } = require('./prompts');
++const { getGroqApiKey, getConfig, getPreferences } = require('../storage');
+ const { sendToRenderer, initializeNewSession, saveConversationTurn } = require('./gemini');
+ const {
+     ensureNativeBinary,
+@@ -24,6 +25,33 @@ let isLocalActive = false;
+ let initializationController = null;
+ let llamaCacheSnapshot = new Set();
+ 
++// Hybrid mode: local Whisper for speech-to-text, Groq (cloud) for the answers.
++let useGroqLlm = false;
++const GROQ_CHAT_URL = 'https://api.groq.com/openai/v1/chat/completions';
++const GROQ_MAX_COMPLETION_TOKENS = 16384;
++
++function stripThinkingTags(text) {
++    const trimmedStart = text.trimStart();
++    if ('<think>'.startsWith(trimmedStart)) {
++        return '';
++    }
++    return text.replace(/<think>[\s\S]*?(?:<\/think>|$)/gi, '').trim();
++}
++
++function getGroqReasoningOptions(model, disableThinking) {
++    if (model.includes('qwen3')) {
++        const options = { reasoning_format: 'hidden' };
++        if (disableThinking) {
++            options.reasoning_effort = 'none';
++        }
++        return options;
++    }
++    if (model.startsWith('openai/gpt-oss-')) {
++        return { include_reasoning: false };
++    }
++    return {};
++}
++
+ let isSpeaking = false;
+ let speechBuffers = [];
+ let silenceFrameCount = 0;
+@@ -211,7 +239,51 @@ async function readStreamingResponse(response, onText) {
+     return fullText;
+ }
+ 
+-async function requestLlama(messages, onText) {
++async function requestGroq(messages, onText, { image = false } = {}) {
++    const apiKey = getGroqApiKey();
++    if (!apiKey || !apiKey.trim()) {
++        throw new Error('Groq API key is missing');
++    }
++
++    const config = getConfig();
++    const model = image ? config.groqImageModel : config.groqModel;
++
++    const response = await fetch(GROQ_CHAT_URL, {
++        method: 'POST',
++        headers: {
++            Authorization: `Bearer ${apiKey}`,
++            'Content-Type': 'application/json',
++        },
++        body: JSON.stringify({
++            model,
++            messages,
++            stream: true,
++            temperature: 0.7,
++            max_completion_tokens: GROQ_MAX_COMPLETION_TOKENS,
++            ...getGroqReasoningOptions(model, config.disableGroqThinking),
++        }),
++    });
++
++    if (!response.ok || !response.body) {
++        const errorText = await response.text();
++        throw new Error(`Groq returned HTTP ${response.status}: ${errorText}`);
++    }
++
++    const rawText = await readStreamingResponse(response, text => {
++        const displayText = stripThinkingTags(text);
++        if (displayText) {
++            onText(displayText);
++        }
++    });
++
++    return stripThinkingTags(rawText);
++}
++
++async function requestLlama(messages, onText, options = {}) {
++    if (useGroqLlm) {
++        return requestGroq(messages, onText, options);
++    }
++
+     if (!llamaBaseUrl) {
+         throw new Error('Llama server is not running');
+     }
+@@ -324,14 +396,17 @@ function removeNewLlamaCacheEntries() {
+     }
+ }
+ 
+-async function prepareNativeFiles(llamaModelReference, whisperModel, signal) {
++async function prepareNativeFiles(llamaModelReference, whisperModel, signal, skipLlama = false) {
+     const binaryProgress = label => progress => {
+         sendToRenderer('update-status', formatDownloadStatus(label, progress));
+         sendDownloadProgress(label, progress);
+     };
+ 
+-    sendDownloadProgress('Checking Llama runner');
+-    const llamaBinaryPath = await ensureNativeBinary('llama', binaryProgress('Llama runner'), signal);
++    let llamaBinaryPath;
++    if (!skipLlama) {
++        sendDownloadProgress('Checking Llama runner');
++        llamaBinaryPath = await ensureNativeBinary('llama', binaryProgress('Llama runner'), signal);
++    }
+ 
+     sendDownloadProgress('Checking Whisper runner');
+     const whisperBinaryPath = await ensureNativeBinary('whisper', binaryProgress('Whisper runner'), signal);
+@@ -345,6 +420,10 @@ async function prepareNativeFiles(llamaModelReference, whisperModel, signal) {
+         sendToRenderer('whisper-downloading', false);
+     }
+ 
++    if (skipLlama) {
++        return { whisperBinaryPath, whisperModelPath };
++    }
++
+     sendDownloadProgress('Checking language model');
+     const llamaFiles = await ensureLlamaModel(llamaModelReference, binaryProgress('Language model'), binaryProgress('Vision model'), signal);
+     return {
+@@ -356,15 +435,17 @@ async function prepareNativeFiles(llamaModelReference, whisperModel, signal) {
+     };
+ }
+ 
+-function validatePreparedNativeFiles(nativeFiles) {
++function validatePreparedNativeFiles(nativeFiles, skipLlama = false) {
+     const requiredFiles = [
+-        ['Llama runner', nativeFiles.llamaBinaryPath],
+         ['Whisper runner', nativeFiles.whisperBinaryPath],
+         ['Whisper model', nativeFiles.whisperModelPath],
+-        ['Language model', nativeFiles.llamaModelPath],
+-        ['Vision model', nativeFiles.projectorPath],
+     ];
+ 
++    if (!skipLlama) {
++        requiredFiles.unshift(['Llama runner', nativeFiles.llamaBinaryPath]);
++        requiredFiles.push(['Language model', nativeFiles.llamaModelPath], ['Vision model', nativeFiles.projectorPath]);
++    }
++
+     for (const [label, filePath] of requiredFiles) {
+         if (!filePath || !fs.existsSync(filePath)) {
+             throw new Error(`${label} path is invalid: ${filePath}`);
+@@ -433,16 +514,24 @@ async function initializeLocalSession(model, whisperModel, profile, customPrompt
+         currentSystemPrompt = getSystemPrompt(profile, customPrompt, false);
+         llamaModel = model;
+ 
+-        const nativeFiles = await prepareNativeFiles(model, whisperModel, initializationController.signal);
+-        validatePreparedNativeFiles(nativeFiles);
++        useGroqLlm = getPreferences().localLlmProvider === 'groq';
++        if (useGroqLlm && !(getGroqApiKey() || '').trim()) {
++            throw new Error('Add your Groq API key to use Groq for answers');
++        }
++        console.log('[LocalAI] Answer provider:', useGroqLlm ? `Groq (${getConfig().groqModel})` : 'local llama.cpp');
++
++        const nativeFiles = await prepareNativeFiles(model, whisperModel, initializationController.signal, useGroqLlm);
++        validatePreparedNativeFiles(nativeFiles, useGroqLlm);
+ 
+         sendToRenderer('update-status', 'Starting Whisper...');
+         sendDownloadProgress('Starting Whisper');
+         await startWhisperServer(nativeFiles.whisperBinaryPath, nativeFiles.whisperModelPath);
+ 
+-        sendToRenderer('update-status', 'Loading local language model...');
+-        sendDownloadProgress('Loading language model');
+-        await startLlamaServer(nativeFiles.llamaBinaryPath, nativeFiles.llamaModelPath, nativeFiles.projectorPath);
++        if (!useGroqLlm) {
++            sendToRenderer('update-status', 'Loading local language model...');
++            sendDownloadProgress('Loading language model');
++            await startLlamaServer(nativeFiles.llamaBinaryPath, nativeFiles.llamaModelPath, nativeFiles.projectorPath);
++        }
+ 
+         isSpeaking = false;
+         speechBuffers = [];
+@@ -497,6 +586,7 @@ function closeLocalSession() {
+     llamaBaseUrl = null;
+     whisperBaseUrl = null;
+     llamaModel = null;
++    useGroqLlm = false;
+     isSpeaking = false;
+     speechBuffers = [];
+     silenceFrameCount = 0;
+@@ -526,7 +616,7 @@ function isLocalSessionActive() {
+ }
+ 
+ async function sendLocalText(text) {
+-    if (!isLocalActive || !llamaProcess) {
++    if (!isLocalActive || (!useGroqLlm && !llamaProcess)) {
+         return { success: false, error: 'No active local session' };
+     }
+ 
+@@ -539,7 +629,7 @@ async function sendLocalText(text) {
+ }
+ 
+ async function sendLocalImage(base64Data, prompt) {
+-    if (!isLocalActive || !llamaProcess) {
++    if (!isLocalActive || (!useGroqLlm && !llamaProcess)) {
+         return { success: false, error: 'No active local session' };
+     }
+ 
+@@ -570,10 +660,14 @@ async function sendLocalImage(base64Data, prompt) {
+         ];
+ 
+         let isFirst = true;
+-        const fullText = await requestLlama(messages, text => {
+-            sendToRenderer(isFirst ? 'new-response' : 'update-response', text);
+-            isFirst = false;
+-        });
++        const fullText = await requestLlama(
++            messages,
++            text => {
++                sendToRenderer(isFirst ? 'new-response' : 'update-response', text);
++                isFirst = false;
++            },
++            { image: true }
++        );
+ 
+         if (fullText.trim()) {
+             localConversationHistory.push({ role: 'assistant', content: fullText.trim() });
+@@ -581,7 +675,7 @@ async function sendLocalImage(base64Data, prompt) {
+         }
+ 
+         sendToRenderer('update-status', 'Listening...');
+-        return { success: true, text: fullText, model: llamaModel };
++        return { success: true, text: fullText, model: useGroqLlm ? getConfig().groqImageModel : llamaModel };
+     } catch (error) {
+         console.error('[LocalAI] Image error:', error);
+         sendToRenderer('update-status', 'Local AI image error: ' + error.message);
